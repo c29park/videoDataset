@@ -1,9 +1,6 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-
-
-
 def plot():
     df = pd.read_csv("final.csv")
 
@@ -20,5 +17,20 @@ def plot():
     )
     plt.title("Occupation Type Distribution")
     plt.show()
+    
+    counts = df["nationality"].value_counts()
+
+    print("nationality Type Counts: ")
+    print(counts)
+
+    plt.figure()
+    counts.plot.pie(
+        autopct ="%1.1f%%",
+        startangle= 90,
+        ylabel="",
+    )
+    plt.title("nationality Type Distribution")
+    plt.show()
+    
 if __name__ == "__main__":
     plot()
