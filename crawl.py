@@ -209,13 +209,19 @@ def main():
 
     # 테스트용 채널 ID 목록
     trusted_channel_ids = [
+        "UCXIJgqnII2ZOINSWNOGFThA",  # Fox News
+        "UCupvZG-5ko_eiXAupbDfxWw",  # CNN
+        "UCeY0bbntWtlPGl0l0b2OuWQ",  # NBC News
         "UC8-Th83bH_thdKZDJCrn88g",  # Jimmy Fallon Show
         "UCMtFAi84ehTSYSE9XoHefig",  # Stephen Colbert
         "UCa6vGFO9ty8v5KZJXQxdhaw",  # Jimmy Kimmel Live
         "UCVTyTA7-g9nopHeHbeuvpRA",  # Seth Meyers
         "UCIALMKvObZNtJ6AmdCLP7Lg",  # Bloomberg Television
         "UCvJJ_dzjViJCoLf5uKUTwoA",  # CNBC
-        "UC6ZFN9Tx6xh-skXCuRHCDpQ"   # PBS NewsHour
+        "UC6ZFN9Tx6xh-skXCuRHCDpQ",  # PBS NewsHour
+        "UCQXHTFnQYFTqN0MqmNh9EIA",  # BBC News
+        "UCoMdktPbSTixAyNGwb-UYkQ",  # SKY News
+        "UCoMdktPbSTixAyNGwb-UYkQ"   # Channel 4 News
     ]
 
     cache = load_cache()
