@@ -6,6 +6,7 @@ import time
 import logging
 import urllib3
 import random
+import re
 from typing import List, Dict
 
 # 로깅 설정
@@ -19,9 +20,9 @@ logging.basicConfig(
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # YouTube API 설정
-API_KEY =  os.getenv("YOUTUBE_API_KEY") # 여기에 실제 YouTube Data API v3 키를 입력하세요
+API_KEY = os.getenv("YOUTUBE_API_KEY")  # 여기에 실제 YouTube Data API v3 키를 입력하세요
 youtube = None
-if API_KEY == "YOUR_API_KEY":
+if not API_KEY or API_KEY == "YOUR_API_KEY":
     logging.warning("API_KEY가 설정되지 않았습니다. 'YOUR_API_KEY'를 실제 API 키로 교체하세요.")
     print("경고: 'YOUR_API_KEY'를 실제 YouTube Data API v3 키로 교체하세요.")
 else:
@@ -43,7 +44,6 @@ def load_cache() -> Dict:
     """캐시 파일에서 데이터를 로드합니다."""
     if not os.path.exists(CACHE_FILE):
         return {}
-    
     try:
         with open(CACHE_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -63,17 +63,29 @@ def save_cache(cache: Dict) -> None:
     except IOError as e:
         logging.error(f"캐시 파일 {CACHE_FILE} 저장 실패: {e}")
 
+def parse_duration(duration: str) -> int:
+    """
+    ISO8601 duration 문자열을 초 단위 정수로 변환합니다.
+    예: 'PT1H2M30S' → 3750
+    """
+    match = re.match(
+        r'PT' +
+        r'(?:(?P<hours>\d+)H)?' +
+        r'(?:(?P<minutes>\d+)M)?' +
+        r'(?:(?P<seconds>\d+)S)?',
+        duration
+    )
+    if not match:
+        return 0
+    parts = match.groupdict()
+    hours = int(parts['hours']) if parts['hours'] else 0
+    minutes = int(parts['minutes']) if parts['minutes'] else 0
+    seconds = int(parts['seconds']) if parts['seconds'] else 0
+    return hours * 3600 + minutes * 60 + seconds
+
 def get_videos_from_channel(channel_id: str, cache: Dict) -> List[Dict]:
     """
-    지정된 채널에서 기준(게시 날짜, 최소 조회수)을 만족하는 영상을 가져옵니다.
-    
-    Args:
-        channel_id (str): YouTube 채널 ID
-        cache (Dict): 캐시 데이터
-    
-    Returns:
-        List[Dict]: 영상 정보 리스트 (video_id, url, title, description, channel_id,
-                   channel_name, published_at, view_count 포함)
+    지정된 채널에서 기준(게시 날짜, 최소 조회수, 영상 길이)을 만족하는 영상을 가져옵니다.
     """
     # 캐시 확인
     if channel_id in cache:
@@ -89,6 +101,7 @@ def get_videos_from_channel(channel_id: str, cache: Dict) -> List[Dict]:
     next_page_token = None
 
     while True:
+        # 검색 API 호출
         for attempt in range(MAX_API_RETRIES):
             try:
                 time.sleep(API_CALL_DELAY)
@@ -116,47 +129,60 @@ def get_videos_from_channel(channel_id: str, cache: Dict) -> List[Dict]:
                 logging.error(f"검색 API 호출 중 예기치 않은 오류 (채널 {channel_id}): {e}")
                 return []
 
-        video_ids = [item["id"]["videoId"] for item in search_response.get("items", []) 
-                    if item["id"]["kind"] == "youtube#video"]
+        video_ids = [
+            item["id"]["videoId"]
+            for item in search_response.get("items", [])
+            if item["id"]["kind"] == "youtube#video"
+        ]
 
         if not video_ids:
             logging.info(f"채널 {channel_id}에서 더 이상 영상을 찾을 수 없습니다.")
             break
 
-        # 영상 상세 정보 가져오기
+        # 영상 상세 정보 가져오기 (contentDetails 포함)
         for i in range(0, len(video_ids), 50):
             batch_video_ids = video_ids[i:i+50]
             try:
                 time.sleep(API_CALL_DELAY)
                 video_stats_request = youtube.videos().list(
-                    part="snippet,statistics",
+                    part="snippet,statistics,contentDetails",
                     id=",".join(batch_video_ids)
                 )
                 video_stats_response = video_stats_request.execute()
 
                 for item in video_stats_response.get("items", []):
+                    vid = item["id"]
+                    # 1) 길이 필터링: 1시간(3600초) 이상인 영상은 스킵
+                    duration = item["contentDetails"]["duration"]
+                    duration_sec = parse_duration(duration)
+                    if duration_sec >= 3600:
+                        logging.info(f"영상 {vid} 길이 {duration}({duration_sec}s) 기준 초과 — 건너뜁니다.")
+                        continue
+
+                    # 2) 조회수 필터링
                     view_count = item.get("statistics", {}).get("viewCount")
                     if view_count is None:
-                        logging.warning(f"영상 {item['id']}에 조회수 정보가 없습니다. 건너뜁니다.")
+                        logging.warning(f"영상 {vid}에 조회수 정보가 없습니다. 건너뜁니다.")
                         continue
                     try:
                         view_count = int(view_count)
                         if view_count >= MIN_VIEW_COUNT:
                             videos_details.append({
-                                "video_id": item["id"],
-                                "url": f"https://www.youtube.com/watch?v={item['id']}",
+                                "video_id": vid,
+                                "url": f"https://www.youtube.com/watch?v={vid}",
                                 "title": item["snippet"]["title"],
                                 "description": item["snippet"].get("description", ""),
                                 "channel_id": item["snippet"]["channelId"],
                                 "channel_name": item["snippet"]["channelTitle"],
                                 "published_at": item["snippet"]["publishedAt"],
-                                "view_count": view_count
+                                "view_count": view_count,
+                                "duration": duration
                             })
-                            logging.info(f"영상 {item['id']} 수집됨 ({view_count} 조회수)")
+                            logging.info(f"영상 {vid} 수집됨 ({view_count} 조회수, 길이 {duration})")
                         else:
-                            logging.info(f"영상 {item['id']} 조회수 {view_count}는 기준 미달")
+                            logging.info(f"영상 {vid} 조회수 {view_count}는 기준 미달")
                     except ValueError:
-                        logging.warning(f"영상 {item['id']}의 조회수 '{view_count}' 변환 실패. 건너뜁니다.")
+                        logging.warning(f"영상 {vid}의 조회수 '{view_count}' 변환 실패. 건너뜁니다.")
             except googleapiclient.errors.HttpError as e:
                 logging.error(f"영상 목록 API 오류 (채널 {channel_id}, 배치 시작 ID {batch_video_ids[0]}): {e}")
                 continue
@@ -193,7 +219,7 @@ def main():
     ]
 
     cache = load_cache()
-    all_videos = {}
+    all_videos: Dict[str, List[Dict]] = {}
 
     for channel_id in trusted_channel_ids:
         print(f"채널 처리 중: {channel_id}")
@@ -207,7 +233,7 @@ def main():
     print(f"모든 채널 처리 완료. 결과는 {CACHE_FILE}에 저장되었습니다.")
 
 if __name__ == "__main__":
-    if API_KEY == "YOUR_API_KEY":
+    if not API_KEY or API_KEY == "YOUR_API_KEY":
         print("\n===== 중요: API 키 설정 필요 =====")
         print("'YOUR_API_KEY'를 실제 YouTube Data API v3 키로 교체하세요.")
         print("API 키 없이는 스크립트가 동작하지 않습니다.")
