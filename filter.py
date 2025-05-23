@@ -7,6 +7,10 @@ import csv
 import openai
 import pandas as pd
 from typing import List, Dict
+from dotenv import load_dotenv
+
+# .env 파일 로드 (환경변수 등록)
+load_dotenv()
 
 # Logging configuration
 logging.basicConfig(
@@ -46,6 +50,10 @@ def detect_persons(text: str, person_list: List[str], model: str = "gpt-4o", ret
                 temperature =0.0
             )
             content = response.choices[0].message.content.strip()
+            
+            # ← 디버깅: 실제 들어온 응답을 로그에 남깁니다
+            logging.info(f"[DEBUG] raw assistant response: {content!r}")
+                 
             #Now parse the JSON array from assistant reply
             matches = json.loads(content)
             if isinstance(matches, list):
@@ -153,9 +161,9 @@ def save_results_to_csv(results: List[Dict], csv_file: str) -> None:
 def main():
     """Main function to perform person search in JSON file."""
     json_file = 'US shows.json'  # Input JSON file
-    csv_file = 'person_search_results.csv'   # Output CSV file
+    csv_file = 'person_search_results_US_shows.csv'   # Output CSV file
     df = pd.read_csv('final.csv')
-    person_list = df['name']  # List of persons to search for
+    person_list = df['name'].dropna().astype(str).tolist() # List of persons to search for
     # Perform person search
     results = find_persons_in_json(json_file, person_list)
     
